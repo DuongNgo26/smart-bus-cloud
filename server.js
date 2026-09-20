@@ -96,6 +96,27 @@ app.post('/api/next-stop', async (req, res) => {
     }
 });
 
+// API 5: Lấy thông tin chuyến xe cho driver.html (Đã bổ sung)
+app.get('/api/trip-info/:idTrip', async (req, res) => {
+    try {
+        const { idTrip } = req.params;
+        const result = await pool.query(`
+            SELECT t.idTrip, r.tenTuyen, t.currentStopSequence 
+            FROM Trip t
+            LEFT JOIN Route r ON t.idRoute = r.idRoute
+            WHERE t.idTrip = $1
+        `, [idTrip]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Lỗi máy chủ' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server Cloud đang chạy tại port ${PORT}`);
