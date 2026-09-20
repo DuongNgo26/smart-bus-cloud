@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Trang chủ điều hướng mặc định đến driver.html
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'driver.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Kết nối PostgreSQL (Neon Cloud)
