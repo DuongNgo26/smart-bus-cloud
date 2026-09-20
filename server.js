@@ -9,131 +9,116 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
-// Phục vụ các file tĩnh trong thư mục public (index.html, css, js)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Trở về trang driver.html mặc định nếu truy cập trang chủ /
+// Trang chủ điều hướng mặc định đến driver.html
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'driver.html'));
 });
 
-// Kết nối PostgreSQL trên Cloud
+// Kết nối PostgreSQL (Neon Cloud)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-// API 1: Lấy danh sách trạm dừng của chuyến xe
-app.get('/api/stops/:idTrip', async (req, res) => {
+// API CHÍNH: Cung cấp toàn bộ dữ liệu chuyến xe, danh sách trạm & trạng thái yêu cầu cho 3 giao diện
+app.get('/api/trip-info/:idTrip', async (req, res) => {
     try {
         const { idTrip } = req.params;
+        
         const result = await pool.query(`
             SELECT 
                 s.idStop AS "idStop", 
                 s.tenTram AS "tenTram", 
                 s.thuTu AS "thuTu", 
-                t.currentStopSequence AS "currentStopSequence"
+                t.currentStopSequence AS "currentStopSequence",
+                BOOL_OR(r.loai = 'LEN') AS "coKhachLen",
+                BOOL_OR(r.loai = 'XUONG') AS "coKhachXuong"
             FROM Stop s
             JOIN Trip t ON s.idRoute = t.idRoute
+            LEFT JOIN Request r 
+                   ON s.idStop = r.idStop 
+                  AND r.idTrip = t.idTrip 
+                  AND r.trangThai = 'Đã xác nhận'
             WHERE t.idTrip = $1
+            GROUP BY s.idStop, s.tenTram, s.thuTu, t.currentStopSequence
             ORDER BY s.thuTu ASC
         `, [idTrip]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Không tìm thấy thông tin chuyến xe' });
+        }
+
+        // Trả về MẢNG danh sách trạm theo đúng kỳ vọng của các file HTML
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
+        console.error("❌ Lỗi fetch trip-info:", err);
         res.status(500).json({ error: 'Lỗi máy chủ' });
     }
 });
 
-// API 2: Gửi yêu cầu Lên/Xuống xe từ Hành khách / Mô phỏng
+// API: Gửi yêu cầu Lên/Xuống xe từ Hành khách & Mô phỏng
 app.post('/api/request', async (req, res) => {
     try {
         const { idTrip, idStop, loai } = req.body;
+        
+        if (!idTrip || !idStop || !loai) {
+            return res.status(400).json({ error: 'Thiếu dữ liệu yêu cầu' });
+        }
+
         await pool.query(`
-            INSERT INTO Request (idTrip, idStop, loai)
-            VALUES ($1, $2, $3)
+            INSERT INTO Request (idTrip, idStop, loai, trangThai)
+            VALUES ($1, $2, $3, 'Đã xác nhận')
         `, [idTrip, idStop, loai]);
+
         res.json({ message: 'Gửi yêu cầu thành công!' });
     } catch (err) {
-        console.error(err);
+        console.error("❌ Lỗi ghi nhận request:", err);
         res.status(500).json({ error: 'Lỗi ghi nhận yêu cầu' });
     }
 });
 
-// API 3: Dành cho Màn hình Tài xế (Polling 3s/lần) - Lấy trạng thái yêu cầu
-app.get('/api/driver-status/:idTrip', async (req, res) => {
-    try {
-        const { idTrip } = req.params;
-        
-        // Lấy thông tin chuyến xe
-        const tripRes = await pool.query('SELECT currentStopSequence AS "currentStopSequence" FROM Trip WHERE idTrip = $1', [idTrip]);
-        if (tripRes.rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
-        
-        const currentStopSequence = tripRes.rows[0].currentStopSequence;
-
-        // Lấy tất cả yêu cầu chưa xử lý
-        const reqRes = await pool.query(`
-            SELECT 
-                r.idRequest AS "idRequest", 
-                r.idStop AS "idStop", 
-                r.loai AS "loai", 
-                s.thuTu AS "thuTu"
-            FROM Request r
-            JOIN Stop s ON r.idStop = s.idStop
-            WHERE r.idTrip = $1 AND r.trangThai = 'Đã xác nhận'
-        `, [idTrip]);
-
-        res.json({
-            currentStopSequence,
-            requests: reqRes.rows
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Lỗi dữ liệu tài xế' });
-    }
-});
-
-// API 4: Tài xế nhấn chuyển sang trạm tiếp theo
+// API: Tài xế nhấn chuyển sang trạm tiếp theo
 app.post('/api/next-stop', async (req, res) => {
+    const client = await pool.connect();
     try {
         const { idTrip } = req.body;
-        await pool.query(`
+        await client.query('BEGIN');
+
+        // 1. Chuyển trạng thái các Request ở trạm hiện tại thành 'Hoàn thành'
+        await client.query(`
+            UPDATE Request 
+            SET trangThai = 'Hoàn thành'
+            WHERE idTrip = $1 
+              AND trangThai = 'Đã xác nhận'
+              AND idStop IN (
+                  SELECT s.idStop 
+                  FROM Stop s 
+                  JOIN Trip t ON s.idRoute = t.idRoute 
+                  WHERE t.idTrip = $1 AND s.thuTu = t.currentStopSequence
+              )
+        `, [idTrip]);
+
+        // 2. Tăng vị trí trạm hiện tại lên 1
+        await client.query(`
             UPDATE Trip 
             SET currentStopSequence = currentStopSequence + 1 
             WHERE idTrip = $1
         `, [idTrip]);
-        res.json({ message: 'Đã sang trạm tiếp theo' });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Lỗi cập nhật trạm' });
-    }
-});
 
-// API 5: Lấy thông tin chuyến xe cho driver.html
-app.get('/api/trip-info/:idTrip', async (req, res) => {
-    try {
-        const { idTrip } = req.params;
-        const result = await pool.query(`
-            SELECT 
-                t.idTrip AS "idTrip", 
-                r.tenTuyen AS "tenTuyen", 
-                t.currentStopSequence AS "currentStopSequence" 
-            FROM Trip t
-            LEFT JOIN Route r ON t.idRoute = r.idRoute
-            WHERE t.idTrip = $1
-        `, [idTrip]);
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
-        }
-        res.json(result.rows[0]);
+        await client.query('COMMIT');
+        res.json({ message: 'Đã chuyển sang trạm tiếp theo thành công' });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Lỗi máy chủ' });
+        await client.query('ROLLBACK');
+        console.error("❌ Lỗi next-stop:", err);
+        res.status(500).json({ error: 'Lỗi cập nhật trạm' });
+    } finally {
+        client.release();
     }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server Cloud đang chạy tại port ${PORT}`);
+    console.log(`🚀 Server Smart Bus đang chạy tại port ${PORT}`);
 });
