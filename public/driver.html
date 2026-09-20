@@ -13,6 +13,7 @@
         .header { background: #1e293b; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #334155; }
         .header h2 { margin: 0 0 10px 0; color: #38bdf8; }
         .status-box { font-size: 18px; font-weight: bold; color: #facc15; }
+        .direction-box { margin-top: 8px; font-size: 15px; color: #94a3b8; }
         
         .stop-list { background: #1e293b; border-radius: 12px; padding: 15px; border: 1px solid #334155; }
         
@@ -60,6 +61,7 @@
         }
         
         .badge-current { background: #38bdf8; color: #0f172a; }
+        .badge-next { background: #a78bfa; color: #0f172a; }
         .badge-len { background: #22c55e; color: #fff; animation: pulse 1.5s infinite; }
         .badge-xuong { background: #ef4444; color: #fff; animation: pulse 1.5s infinite; }
 
@@ -80,6 +82,7 @@
         <div class="header">
             <h2>🚌 BẢNG ĐIỀU KHIỂN TÀI XẾ</h2>
             <div class="status-box" id="currentStopTitle">Trạm hiện tại: Đang tải...</div>
+            <div class="direction-box" id="directionInfo"></div>
             <button class="btn-next" id="btnNextStop" onclick="nextStop()">⏭️ CHUYỂN SANG TRẠM KẾ TIẾP</button>
         </div>
 
@@ -105,6 +108,8 @@
                 }
 
                 currentSequence = rawData[0].currentStopSequence || 1;
+                const huong = rawData[0].huong === -1 ? -1 : 1;   // 1 = chiều đi, -1 = chiều về
+                const nextSequence = rawData[0].nextSequence;     // server tính sẵn theo chiều
 
                 const stopsMap = new Map();
                 rawData.forEach(item => {
@@ -119,22 +124,30 @@
                     }
 
                     const stopObj = stopsMap.get(item.idStop);
-                    if (item.loai === 'LEN' || item.coKhachLen) stopObj.hasLen = true;
-                    if (item.loai === 'XUONG' || item.coKhachXuong) stopObj.hasXuong = true;
+                    if (item.coKhachLen) stopObj.hasLen = true;
+                    if (item.coKhachXuong) stopObj.hasXuong = true;
                 });
 
                 const stops = Array.from(stopsMap.values()).sort((a, b) => a.thuTu - b.thuTu);
+                const first = stops[0];
+                const last = stops[stops.length - 1];
 
                 const currentStop = stops.find(s => s.thuTu === currentSequence);
                 if (currentStop) {
-                    document.getElementById('currentStopTitle').innerText = `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
+                    document.getElementById('currentStopTitle').innerText =
+                        `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
                 }
+
+                document.getElementById('directionInfo').innerText = huong === 1
+                    ? `➡️ Chiều đi: ${first.tenTram} → ${last.tenTram}`
+                    : `⬅️ Chiều về: ${last.tenTram} → ${first.tenTram}`;
 
                 const container = document.getElementById('stopList');
                 container.innerHTML = '';
 
                 stops.forEach(stop => {
                     const isCurrent = stop.thuTu === currentSequence;
+                    const isNext = stop.thuTu === nextSequence && !isCurrent;
 
                     let itemClass = 'stop-item';
                     if (isCurrent) {
@@ -149,16 +162,16 @@
 
                     let badgesHtml = '';
                     if (isCurrent) badgesHtml += '<span class="badge badge-current">🚌 XE Ở ĐÂY</span>';
+                    if (isNext) badgesHtml += '<span class="badge badge-next">⏭️ TRẠM KẾ</span>';
                     if (stop.hasLen) badgesHtml += '<span class="badge badge-len">🟢 CÓ KHÁCH LÊN</span>';
                     if (stop.hasXuong) badgesHtml += '<span class="badge badge-xuong">🔴 CÓ KHÁCH XUỐNG</span>';
 
-                    const itemHtml = `
+                    container.innerHTML += `
                         <div class="${itemClass}">
                             <div class="stop-name">${stop.thuTu}. ${stop.tenTram}</div>
                             <div class="badges">${badgesHtml}</div>
                         </div>
                     `;
-                    container.innerHTML += itemHtml;
                 });
 
             } catch (err) {

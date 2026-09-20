@@ -123,7 +123,9 @@
                 const currentSeq = data[0].currentStopSequence;
                 const currentStop = uniqueStops.find(s => s.thuTu === currentSeq);
                 if (currentStop) {
-                    document.getElementById('currentStopName').innerText = `${currentStop.tenTram} (Trạm ${currentStop.thuTu}/${uniqueStops.length})`;
+                    const huongText = data[0].huong === -1 ? '⬅️ chiều về' : '➡️ chiều đi';
+                    document.getElementById('currentStopName').innerText =
+                        `${currentStop.tenTram} (Trạm ${currentStop.thuTu}/${uniqueStops.length}) - ${huongText}`;
                 }
 
                 const select = document.getElementById('stopSelect');

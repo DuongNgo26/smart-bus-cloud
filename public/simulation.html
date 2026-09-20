@@ -215,9 +215,9 @@
                     }
                 });
 
-                const currentSeq = data[0].currentStopSequence;
-                const nextSeq = currentSeq + 1;
-                nextStopData = uniqueStops.find(s => s.thuTu === nextSeq) || uniqueStops.find(s => s.thuTu === currentSeq);
+                // Server đã tính sẵn trạm kế tiếp theo chiều đi/về của xe
+                const nextSeq = data[0].nextSequence;
+                nextStopData = uniqueStops.find(s => s.thuTu === nextSeq);
 
                 if (nextStopData) {
                     document.getElementById('nextStopName').innerText = `${nextStopData.tenTram} (Trạm ${nextStopData.thuTu})`;
