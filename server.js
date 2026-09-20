@@ -84,7 +84,7 @@ app.post('/api/request', async (req, res) => {
     }
 });
 
-// API: Tài xế nhấn chuyển sang trạm tiếp theo
+// API: Tài xế nhấn chuyển sang trạm tiếp theo (Tự động xoay vòng về trạm 1 khi ở trạm cuối)
 app.post('/api/next-stop', async (req, res) => {
     const { idTrip } = req.body;
 
@@ -110,21 +110,34 @@ app.post('/api/next-stop', async (req, res) => {
               )
         `, [idTrip]);
 
-        // 2. Tăng vị trí trạm hiện tại lên 1 (chặn không cho tăng vượt quá trạm cuối)
-        await client.query(`
+        // 2. Tăng vị trí trạm (Nếu đang ở trạm cuối thì tự động quay về trạm nhỏ nhất)
+        const updatedTrip = await client.query(`
             UPDATE Trip 
-            SET currentStopSequence = currentStopSequence + 1 
-            WHERE idTrip = $1 
-              AND currentStopSequence < (
-                  SELECT MAX(s.thuTu) 
-                  FROM Stop s 
-                  JOIN Trip t ON s.idRoute = t.idRoute 
-                  WHERE t.idTrip = $1
-              )
+            SET currentStopSequence = CASE 
+                WHEN currentStopSequence >= (
+                    SELECT MAX(s.thuTu) 
+                    FROM Stop s 
+                    JOIN Trip t ON s.idRoute = t.idRoute 
+                    WHERE t.idTrip = $1
+                ) THEN (
+                    SELECT MIN(s.thuTu) 
+                    FROM Stop s 
+                    JOIN Trip t ON s.idRoute = t.idRoute 
+                    WHERE t.idTrip = $1
+                )
+                ELSE currentStopSequence + 1 
+            END
+            WHERE idTrip = $1
+            RETURNING currentStopSequence
         `, [idTrip]);
 
         await client.query('COMMIT');
-        res.json({ message: 'Đã chuyển sang trạm tiếp theo thành công' });
+
+        const newSequence = updatedTrip.rows[0]?.currentstopsequence;
+        res.json({ 
+            message: 'Đã chuyển sang trạm tiếp theo thành công',
+            nextStopSequence: newSequence
+        });
     } catch (err) {
         await client.query('ROLLBACK');
         console.error("❌ Lỗi next-stop:", err);

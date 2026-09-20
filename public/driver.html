@@ -69,8 +69,9 @@
             100% { opacity: 1; }
         }
 
-        .btn-next { width: 100%; padding: 16px; background: #2563eb; color: #fff; border: none; font-size: 18px; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 15px; }
+        .btn-next { width: 100%; padding: 16px; background: #2563eb; color: #fff; border: none; font-size: 18px; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 15px; transition: background 0.2s; }
         .btn-next:hover { background: #1d4ed8; }
+        .btn-next:active { transform: scale(0.99); }
         .refresh-info { text-align: center; font-size: 13px; color: #94a3b8; margin-top: 12px; }
     </style>
 </head>
@@ -79,7 +80,7 @@
         <div class="header">
             <h2>🚌 BẢNG ĐIỀU KHIỂN TÀI XẾ</h2>
             <div class="status-box" id="currentStopTitle">Trạm hiện tại: Đang tải...</div>
-            <button class="btn-next" onclick="nextStop()">⏭️ CHUYỂN SANG TRẠM KẾ TIẾP</button>
+            <button class="btn-next" id="btnNextStop" onclick="nextStop()">⏭️ CHUYỂN SANG TRẠM KẾ TIẾP</button>
         </div>
 
         <div class="stop-list" id="stopList">
@@ -90,14 +91,13 @@
     </div>
 
     <script>
+        const ID_TRIP = 1;
         let currentSequence = 1;
 
         async function fetchTripData() {
-            console.log("🔄 [Driver] Đang cập nhật dữ liệu chuyến xe...");
             try {
-                const res = await fetch('/api/trip-info/1');
+                const res = await fetch(`/api/trip-info/${ID_TRIP}`);
                 const rawData = await res.json();
-                console.log("✅ [Driver] Dữ liệu chuyến xe:", rawData);
 
                 if (!Array.isArray(rawData) || rawData.length === 0) {
                     document.getElementById('stopList').innerHTML = '<div style="text-align:center;">Không có dữ liệu chuyến xe</div>';
@@ -166,19 +166,21 @@
             }
         }
 
-        async function nextStop() {
-            try {
-                const res = await fetch('/api/next-stop', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idTrip: 1 })
-                });
-                const result = await res.json();
+        function nextStop() {
+            // Gửi yêu cầu chuyển trạm không chặn luồng chính
+            fetch('/api/next-stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idTrip: ID_TRIP })
+            })
+            .then(res => res.json())
+            .then(result => {
                 console.log("Chuyển trạm:", result);
                 fetchTripData();
-            } catch (err) {
-                alert('Chuyển trạm thất bại hoặc API /api/next-stop chưa khởi tạo');
-            }
+            })
+            .catch(err => {
+                console.error("❌ Lỗi chuyển trạm:", err);
+            });
         }
 
         window.onload = () => {
