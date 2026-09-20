@@ -95,9 +95,76 @@
 
     <script>
         const ID_TRIP = 1;
-        let currentSequence = 1;
+        let state = null;               // { stops, currentSequence, huong }
+        let pending = 0;                // số yêu cầu chuyển trạm đang chờ server
+        let lastActionAt = 0;           // thời điểm bấm gần nhất
+        let queue = Promise.resolve();  // xếp hàng để server nhận đúng thứ tự
+
+        // Giống hệt logic trên server
+        function tinhTramKeTiep(seq, huong, minSeq, maxSeq) {
+            if (huong === 1) {
+                if (seq >= maxSeq) return { seq: Math.max(maxSeq - 1, minSeq), huong: -1 };
+                return { seq: seq + 1, huong: 1 };
+            } else {
+                if (seq <= minSeq) return { seq: Math.min(minSeq + 1, maxSeq), huong: 1 };
+                return { seq: seq - 1, huong: -1 };
+            }
+        }
+
+        function render() {
+            if (!state) return;
+            const { stops, currentSequence, huong } = state;
+            const first = stops[0];
+            const last = stops[stops.length - 1];
+            const nextSequence = tinhTramKeTiep(currentSequence, huong, first.thuTu, last.thuTu).seq;
+
+            const currentStop = stops.find(s => s.thuTu === currentSequence);
+            if (currentStop) {
+                document.getElementById('currentStopTitle').innerText =
+                    `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
+            }
+
+            document.getElementById('directionInfo').innerText = huong === 1
+                ? `➡️ Chiều đi: ${first.tenTram} → ${last.tenTram}`
+                : `⬅️ Chiều về: ${last.tenTram} → ${first.tenTram}`;
+
+            const container = document.getElementById('stopList');
+            let html = '';
+
+            stops.forEach(stop => {
+                const isCurrent = stop.thuTu === currentSequence;
+                const isNext = stop.thuTu === nextSequence && !isCurrent;
+
+                let itemClass = 'stop-item';
+                if (isCurrent) {
+                    itemClass += ' current';
+                } else if (stop.hasLen && stop.hasXuong) {
+                    itemClass += ' has-request-both';
+                } else if (stop.hasLen) {
+                    itemClass += ' has-request-len';
+                } else if (stop.hasXuong) {
+                    itemClass += ' has-request-xuong';
+                }
+
+                let badgesHtml = '';
+                if (isCurrent) badgesHtml += '<span class="badge badge-current">🚌 XE Ở ĐÂY</span>';
+                if (isNext) badgesHtml += '<span class="badge badge-next">⏭️ TRẠM KẾ</span>';
+                if (stop.hasLen) badgesHtml += '<span class="badge badge-len">🟢 CÓ KHÁCH LÊN</span>';
+                if (stop.hasXuong) badgesHtml += '<span class="badge badge-xuong">🔴 CÓ KHÁCH XUỐNG</span>';
+
+                html += `
+                    <div class="${itemClass}">
+                        <div class="stop-name">${stop.thuTu}. ${stop.tenTram}</div>
+                        <div class="badges">${badgesHtml}</div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
 
         async function fetchTripData() {
+            const startedAt = Date.now();
             try {
                 const res = await fetch(`/api/trip-info/${ID_TRIP}`);
                 const rawData = await res.json();
@@ -107,9 +174,8 @@
                     return;
                 }
 
-                currentSequence = rawData[0].currentStopSequence || 1;
-                const huong = rawData[0].huong === -1 ? -1 : 1;   // 1 = chiều đi, -1 = chiều về
-                const nextSequence = rawData[0].nextSequence;     // server tính sẵn theo chiều
+                // Bỏ qua dữ liệu cũ nếu tài xế vừa bấm chuyển trạm
+                if (pending > 0 || startedAt < lastActionAt) return;
 
                 const stopsMap = new Map();
                 rawData.forEach(item => {
@@ -122,57 +188,17 @@
                             hasXuong: false
                         });
                     }
-
                     const stopObj = stopsMap.get(item.idStop);
                     if (item.coKhachLen) stopObj.hasLen = true;
                     if (item.coKhachXuong) stopObj.hasXuong = true;
                 });
 
-                const stops = Array.from(stopsMap.values()).sort((a, b) => a.thuTu - b.thuTu);
-                const first = stops[0];
-                const last = stops[stops.length - 1];
-
-                const currentStop = stops.find(s => s.thuTu === currentSequence);
-                if (currentStop) {
-                    document.getElementById('currentStopTitle').innerText =
-                        `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
-                }
-
-                document.getElementById('directionInfo').innerText = huong === 1
-                    ? `➡️ Chiều đi: ${first.tenTram} → ${last.tenTram}`
-                    : `⬅️ Chiều về: ${last.tenTram} → ${first.tenTram}`;
-
-                const container = document.getElementById('stopList');
-                container.innerHTML = '';
-
-                stops.forEach(stop => {
-                    const isCurrent = stop.thuTu === currentSequence;
-                    const isNext = stop.thuTu === nextSequence && !isCurrent;
-
-                    let itemClass = 'stop-item';
-                    if (isCurrent) {
-                        itemClass += ' current';
-                    } else if (stop.hasLen && stop.hasXuong) {
-                        itemClass += ' has-request-both';
-                    } else if (stop.hasLen) {
-                        itemClass += ' has-request-len';
-                    } else if (stop.hasXuong) {
-                        itemClass += ' has-request-xuong';
-                    }
-
-                    let badgesHtml = '';
-                    if (isCurrent) badgesHtml += '<span class="badge badge-current">🚌 XE Ở ĐÂY</span>';
-                    if (isNext) badgesHtml += '<span class="badge badge-next">⏭️ TRẠM KẾ</span>';
-                    if (stop.hasLen) badgesHtml += '<span class="badge badge-len">🟢 CÓ KHÁCH LÊN</span>';
-                    if (stop.hasXuong) badgesHtml += '<span class="badge badge-xuong">🔴 CÓ KHÁCH XUỐNG</span>';
-
-                    container.innerHTML += `
-                        <div class="${itemClass}">
-                            <div class="stop-name">${stop.thuTu}. ${stop.tenTram}</div>
-                            <div class="badges">${badgesHtml}</div>
-                        </div>
-                    `;
-                });
+                state = {
+                    stops: Array.from(stopsMap.values()).sort((a, b) => a.thuTu - b.thuTu),
+                    currentSequence: rawData[0].currentStopSequence || 1,
+                    huong: rawData[0].huong === -1 ? -1 : 1
+                };
+                render();
 
             } catch (err) {
                 console.error("❌ [Driver] Lỗi tải dữ liệu:", err);
@@ -180,20 +206,34 @@
         }
 
         function nextStop() {
-            // Gửi yêu cầu chuyển trạm không chặn luồng chính
-            fetch('/api/next-stop', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idTrip: ID_TRIP })
-            })
-            .then(res => res.json())
-            .then(result => {
-                console.log("Chuyển trạm:", result);
-                fetchTripData();
-            })
-            .catch(err => {
-                console.error("❌ Lỗi chuyển trạm:", err);
+            if (!state) return;
+            const { stops, currentSequence, huong } = state;
+            const next = tinhTramKeTiep(currentSequence, huong, stops[0].thuTu, stops[stops.length - 1].thuTu);
+
+            // 1) Cập nhật màn hình NGAY LẬP TỨC (không chờ server)
+            stops.forEach(s => {
+                if (s.thuTu === currentSequence) { s.hasLen = false; s.hasXuong = false; }
             });
+            state.currentSequence = next.seq;
+            state.huong = next.huong;
+            lastActionAt = Date.now();
+            render();
+
+            // 2) Gửi lên server ngầm, xếp hàng để giữ đúng thứ tự
+            pending++;
+            queue = queue
+                .then(() => fetch('/api/next-stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idTrip: ID_TRIP })
+                }))
+                .then(res => res.json())
+                .then(result => console.log("Chuyển trạm:", result))
+                .catch(err => console.error("❌ Lỗi chuyển trạm:", err))
+                .finally(() => {
+                    pending--;
+                    if (pending === 0) fetchTripData();   // đồng bộ lại với server khi xong hết
+                });
         }
 
         window.onload = () => {

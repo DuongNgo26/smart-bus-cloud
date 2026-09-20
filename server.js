@@ -11,6 +11,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Trang chủ điều hướng đến trang Menu chính (index.html)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -34,7 +35,7 @@ function tinhTramKeTiep(seq, huong, minSeq, maxSeq) {
     }
 }
 
-// API CHÍNH: dữ liệu chuyến xe, danh sách trạm & trạng thái yêu cầu
+// API CHÍNH: Cung cấp toàn bộ dữ liệu chuyến xe, danh sách trạm & trạng thái yêu cầu
 app.get('/api/trip-info/:idTrip', async (req, res) => {
     try {
         const { idTrip } = req.params;
@@ -82,15 +83,17 @@ app.post('/api/request', async (req, res) => {
     try {
         let { idTrip, idStop, loai } = req.body;
 
+        // 1. Kiểm tra thiếu dữ liệu cơ bản (idTrip và loai là bắt buộc)
         if (!idTrip || !loai) {
             return res.status(400).json({ error: 'Thiếu dữ liệu yêu cầu' });
         }
 
+        // 2. Validate giá trị 'loai' chỉ chấp nhận LEN hoặc XUONG
         if (!['LEN', 'XUONG'].includes(loai)) {
             return res.status(400).json({ error: 'Loại yêu cầu không hợp lệ (chỉ chấp nhận LEN hoặc XUONG)' });
         }
 
-        // Nút trên xe (idStop = 0 hoặc không truyền): server tự chọn trạm kế tiếp THEO CHIỀU
+        // 3. Nút trên xe (idStop = 0 hoặc không truyền): server tự chọn trạm kế tiếp THEO CHIỀU
         if (!idStop || idStop === 0) {
             const tripInfo = await pool.query(`
                 SELECT t.idRoute, t.currentStopSequence, COALESCE(t.huong, 1) AS huong
@@ -124,6 +127,7 @@ app.post('/api/request', async (req, res) => {
             idStop = stopQuery.rows[0].idstop;
         }
 
+        // 4. Lưu request vào Database
         await pool.query(`
             INSERT INTO Request (idTrip, idStop, loai, trangThai)
             VALUES ($1, $2, $3, 'Đã xác nhận')
@@ -144,61 +148,46 @@ app.post('/api/next-stop', async (req, res) => {
         return res.status(400).json({ error: 'Thiếu idTrip trong yêu cầu' });
     }
 
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
-
-        const tripQ = await client.query(`
-            SELECT idRoute, currentStopSequence, COALESCE(huong, 1) AS huong
-            FROM Trip WHERE idTrip = $1 FOR UPDATE
+        // Lần 1: đọc chuyến xe + đầu/cuối tuyến trong 1 câu truy vấn
+        const info = await pool.query(`
+            SELECT t.idRoute, t.currentStopSequence, COALESCE(t.huong, 1) AS huong,
+                   MIN(s.thuTu) AS minseq, MAX(s.thuTu) AS maxseq
+            FROM Trip t
+            JOIN Stop s ON s.idRoute = t.idRoute
+            WHERE t.idTrip = $1
+            GROUP BY t.idRoute, t.currentStopSequence, t.huong
         `, [idTrip]);
 
-        if (tripQ.rows.length === 0) {
-            await client.query('ROLLBACK');
+        if (info.rows.length === 0) {
             return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
         }
 
-        const { idroute, currentstopsequence, huong } = tripQ.rows[0];
+        const { idroute, currentstopsequence, huong, minseq, maxseq } = info.rows[0];
+        const next = tinhTramKeTiep(currentstopsequence, huong, minseq, maxseq);
 
-        const rangeQ = await client.query(`
-            SELECT MIN(thuTu) AS minseq, MAX(thuTu) AS maxseq 
-            FROM Stop WHERE idRoute = $1
-        `, [idroute]);
+        // Lần 2: hoàn thành request ở trạm cũ + cập nhật trạm/chiều mới (1 câu lệnh, tự động atomic)
+        await pool.query(`
+            WITH done AS (
+                UPDATE Request
+                SET trangThai = 'Hoàn thành'
+                WHERE idTrip = $1
+                  AND trangThai = 'Đã xác nhận'
+                  AND idStop IN (
+                      SELECT idStop FROM Stop WHERE idRoute = $2 AND thuTu = $3
+                  )
+            )
+            UPDATE Trip SET currentStopSequence = $4, huong = $5 WHERE idTrip = $1
+        `, [idTrip, idroute, currentstopsequence, next.seq, next.huong]);
 
-        // 1. Hoàn thành các Request ở trạm hiện tại
-        await client.query(`
-            UPDATE Request 
-            SET trangThai = 'Hoàn thành'
-            WHERE idTrip = $1 
-              AND trangThai = 'Đã xác nhận'
-              AND idStop IN (
-                  SELECT idStop FROM Stop WHERE idRoute = $2 AND thuTu = $3
-              )
-        `, [idTrip, idroute, currentstopsequence]);
-
-        // 2. Tính trạm mới + chiều mới rồi cập nhật
-        const next = tinhTramKeTiep(
-            currentstopsequence, huong,
-            rangeQ.rows[0].minseq, rangeQ.rows[0].maxseq
-        );
-
-        await client.query(`
-            UPDATE Trip SET currentStopSequence = $1, huong = $2 WHERE idTrip = $3
-        `, [next.seq, next.huong, idTrip]);
-
-        await client.query('COMMIT');
-
-        res.json({ 
+        res.json({
             message: 'Đã chuyển sang trạm tiếp theo thành công',
             nextStopSequence: next.seq,
             huong: next.huong
         });
     } catch (err) {
-        await client.query('ROLLBACK');
         console.error("❌ Lỗi next-stop:", err);
         res.status(500).json({ error: 'Lỗi cập nhật trạm' });
-    } finally {
-        client.release();
     }
 });
 
