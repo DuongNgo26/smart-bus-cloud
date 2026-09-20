@@ -12,6 +12,11 @@ app.use(express.json());
 // Phục vụ các file tĩnh trong thư mục public (index.html, css, js)
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Trở về trang driver.html mặc định nếu truy cập trang chủ /
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'driver.html'));
+});
+
 // Kết nối PostgreSQL trên Cloud
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -23,7 +28,11 @@ app.get('/api/stops/:idTrip', async (req, res) => {
     try {
         const { idTrip } = req.params;
         const result = await pool.query(`
-            SELECT s.idStop, s.tenTram, s.thuTu, t.currentStopSequence
+            SELECT 
+                s.idStop AS "idStop", 
+                s.tenTram AS "tenTram", 
+                s.thuTu AS "thuTu", 
+                t.currentStopSequence AS "currentStopSequence"
             FROM Stop s
             JOIN Trip t ON s.idRoute = t.idRoute
             WHERE t.idTrip = $1
@@ -57,14 +66,18 @@ app.get('/api/driver-status/:idTrip', async (req, res) => {
         const { idTrip } = req.params;
         
         // Lấy thông tin chuyến xe
-        const tripRes = await pool.query('SELECT currentStopSequence FROM Trip WHERE idTrip = $1', [idTrip]);
+        const tripRes = await pool.query('SELECT currentStopSequence AS "currentStopSequence" FROM Trip WHERE idTrip = $1', [idTrip]);
         if (tripRes.rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
         
-        const currentStopSequence = tripRes.rows[0].currentstopsequence;
+        const currentStopSequence = tripRes.rows[0].currentStopSequence;
 
         // Lấy tất cả yêu cầu chưa xử lý
         const reqRes = await pool.query(`
-            SELECT r.idRequest, r.idStop, r.loai, s.thuTu
+            SELECT 
+                r.idRequest AS "idRequest", 
+                r.idStop AS "idStop", 
+                r.loai AS "loai", 
+                s.thuTu AS "thuTu"
             FROM Request r
             JOIN Stop s ON r.idStop = s.idStop
             WHERE r.idTrip = $1 AND r.trangThai = 'Đã xác nhận'
@@ -96,12 +109,15 @@ app.post('/api/next-stop', async (req, res) => {
     }
 });
 
-// API 5: Lấy thông tin chuyến xe cho driver.html (Đã bổ sung)
+// API 5: Lấy thông tin chuyến xe cho driver.html
 app.get('/api/trip-info/:idTrip', async (req, res) => {
     try {
         const { idTrip } = req.params;
         const result = await pool.query(`
-            SELECT t.idTrip, r.tenTuyen, t.currentStopSequence 
+            SELECT 
+                t.idTrip AS "idTrip", 
+                r.tenTuyen AS "tenTuyen", 
+                t.currentStopSequence AS "currentStopSequence" 
             FROM Trip t
             LEFT JOIN Route r ON t.idRoute = r.idRoute
             WHERE t.idTrip = $1
