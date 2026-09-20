@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mô Phỏng Thiết Bị Vật Lý Tại Trạm & Trên Xe</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #0f172a; 
+            display: flex; 
+            flex-direction: row; 
+            justify-content: center;
+            align-items: center; 
+            gap: 24px;
+            padding: 20px; 
+            margin: 0;
+            min-height: 100vh;
+        }
+        
+        .card { 
+            background: #ffffff; 
+            padding: 20px 22px; 
+            border-radius: 16px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.25); 
+            width: 400px; 
+            height: 370px; 
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; 
+            text-align: center; 
+        }
+
+        .card h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #0f172a;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 8px;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        
+        .top-slot {
+            height: 52px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            color: #0d47a1;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        label {
+            display: block;
+            text-align: left;
+            font-weight: bold;
+            color: #334155;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+        select { 
+            width: 100%; 
+            padding: 8px 10px; 
+            border-radius: 6px; 
+            border: 1px solid #cbd5e1; 
+            font-size: 13px; 
+            background-color: #fff;
+            outline: none;
+        }
+
+        /* --- CẤU TRÚC NÚT BẤM 3D VẬT LÝ --- */
+        .btn-3d-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 6px 0;
+        }
+
+        .btn-3d-base {
+            position: relative;
+            width: 96px;
+            height: 48px;
+            background: #64748b;
+            border-radius: 50%;
+            border: 3px solid #334155;
+            box-shadow: 0 5px 0 #1e293b, 0 6px 12px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            outline: none;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 2px;
+            transition: all 0.1s ease;
+        }
+
+        .btn-3d-cap {
+            width: 70px;
+            height: 35px;
+            border-radius: 50% 50% 45% 45%;
+            box-shadow: inset 0 4px 6px rgba(255, 255, 255, 0.5), 0 3px 0 rgba(0, 0, 0, 0.25);
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        .btn-red .btn-3d-cap {
+            background: radial-gradient(circle at 50% 30%, #ff6b6b, #ef4444 65%, #991b1b);
+        }
+
+        .btn-green .btn-3d-cap {
+            background: radial-gradient(circle at 50% 30%, #4ade80, #22c55e 65%, #15803d);
+        }
+
+        .btn-3d-base:active .btn-3d-cap {
+            transform: translateY(3px);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-text-label {
+            font-weight: 700;
+            font-size: 13.5px;
+            color: #0f172a;
+            letter-spacing: 0.2px;
+        }
+
+        .sub-text {
+            font-size: 12.5px;
+            color: #64748b;
+            margin: 0;
+            line-height: 1.45;
+            text-align: center;
+        }
+
+        @media (max-width: 860px) {
+            body {
+                flex-direction: column;
+                align-items: center;
+                height: auto;
+            }
+            .card {
+                width: 100%;
+                max-width: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- KHỐI 1: NÚT BẤM VẬT LÝ TRÊN XE BUS -->
+    <div class="card">
+        <h3>🔔 NÚT BẤM VẬT LÝ TRÊN XE BUS</h3>
+        
+        <div class="top-slot">
+            <div class="info-box">
+                🚌 Xe sắp tới: <span id="nextStopName">Đang cập nhật...</span>
+            </div>
+        </div>
+
+        <div class="btn-3d-wrapper">
+            <button class="btn-3d-base btn-red" onclick="pressBusButton()" title="Bấm để báo xuống xe">
+                <div class="btn-3d-cap"></div>
+            </button>
+            <span class="btn-text-label">BẤM NÚT BÁO XUỐNG XE</span>
+        </div>
+
+        <p class="sub-text">Hành khách trên xe chỉ cần nhấn nút. Hệ thống tự động gửi yêu cầu xuống ở <b>Trạm kế tiếp</b>.</p>
+    </div>
+
+    <!-- KHỐI 2: NÚT BẤM VẬT LÝ CỐ ĐỊNH TẠI TRẠM -->
+    <div class="card">
+        <h3>🚏 NÚT BẤM VẬT LÝ CỐ ĐỊNH TẠI TRẠM</h3>
+        
+        <div class="top-slot">
+            <label for="stationSelect">Mô phỏng vị trí nút bấm đang đặt tại:</label>
+            <select id="stationSelect">
+                <option value="">-- Chọn trạm gắn nút bấm --</option>
+            </select>
+        </div>
+
+        <div class="btn-3d-wrapper">
+            <button class="btn-3d-base btn-green" onclick="pressStationButton()" title="Bấm để báo lên xe">
+                <div class="btn-3d-cap"></div>
+            </button>
+            <span class="btn-text-label">BẤM NÚT BÁO LÊN XE</span>
+        </div>
+
+        <p class="sub-text">Mỗi trạm gắn 1 nút bấm cố định. Hành khách đứng tại trạm chỉ cần nhấn 1 nút duy nhất để gọi xe.</p>
+    </div>
+
+    <script>
+        let nextStopData = null;
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/trip-info/1');
+                const data = await res.json();
+                if (!Array.isArray(data) || data.length === 0) return;
+
+                const uniqueStops = [];
+                const stopMap = new Map();
+                data.forEach(item => {
+                    if (!stopMap.has(item.idStop)) {
+                        stopMap.set(item.idStop, item);
+                        uniqueStops.push(item);
+                    }
+                });
+
+                const currentSeq = data[0].currentStopSequence;
+                const nextSeq = currentSeq + 1;
+                nextStopData = uniqueStops.find(s => s.thuTu === nextSeq) || uniqueStops.find(s => s.thuTu === currentSeq);
+
+                if (nextStopData) {
+                    document.getElementById('nextStopName').innerText = `${nextStopData.tenTram} (Trạm ${nextStopData.thuTu})`;
+                }
+
+                const select = document.getElementById('stationSelect');
+                if (select.options.length <= 1) {
+                    select.innerHTML = '<option value="">-- Chọn trạm gắn nút bấm --</option>';
+                    uniqueStops.forEach(stop => {
+                        const option = document.createElement('option');
+                        option.value = stop.idStop;
+                        option.textContent = `${stop.thuTu}. ${stop.tenTram}`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (err) {
+                console.error('Lỗi tải dữ liệu:', err);
+                document.getElementById('nextStopName').innerText = "Lỗi kết nối Server!";
+            }
+        }
+
+        async function pressBusButton() {
+            if (!nextStopData) {
+                alert("Chưa xác định được trạm kế tiếp!");
+                return;
+            }
+            await sendApiRequest(nextStopData.idStop, 'XUONG', `Yêu cầu XUỐNG XE tại ${nextStopData.tenTram}`);
+        }
+
+        async function pressStationButton() {
+            const idStop = document.getElementById('stationSelect').value;
+            if (!idStop) {
+                alert("Vui lòng chọn trạm mô phỏng nơi đặt nút bấm!");
+                return;
+            }
+            await sendApiRequest(parseInt(idStop), 'LEN', 'Yêu cầu LÊN XE');
+        }
+
+        async function sendApiRequest(idStop, loai, messageText) {
+            try {
+                const res = await fetch('/api/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idTrip: 1, idStop, loai })
+                });
+
+                if (res.ok) {
+                    alert(`✅ ${messageText} đã được gửi thành công đến tài xế!`);
+                } else {
+                    const errData = await res.json();
+                    alert('❌ Lỗi: ' + (errData.error || 'Gửi thất bại'));
+                }
+            } catch (err) {
+                alert('Không thể kết nối đến Server!');
+            }
+        }
+
+        window.onload = () => {
+            loadData();
+            setInterval(loadData, 3000);
+        };
+    </script>
+</body>
+</html>

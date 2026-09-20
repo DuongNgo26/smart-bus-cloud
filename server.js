@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
+const cors = require('cors');
 const { Pool } = require('pg');
 
 const app = express();
@@ -9,6 +9,7 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+// Phục vụ các file tĩnh trong thư mục public (index.html, css, js)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Kết nối PostgreSQL trên Cloud

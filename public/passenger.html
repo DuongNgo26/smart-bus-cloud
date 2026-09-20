@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Hành Khách - Đặt Trạm Lên / Xuống Xe</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #0f172a; 
+            display: flex; 
+            justify-content: center; 
+            padding-top: 50px; 
+            margin: 0;
+        }
+        .card { 
+            background: #ffffff; 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            width: 360px; 
+            text-align: center; 
+        }
+        .bus-status {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            color: #0d47a1;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            font-size: 15px;
+        }
+        label {
+            display: block;
+            text-align: left;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 6px;
+        }
+        select { 
+            width: 100%; 
+            padding: 12px; 
+            border-radius: 6px; 
+            border: 1px solid #ccc; 
+            font-size: 15px; 
+            box-sizing: border-box; 
+            margin-bottom: 15px;
+            background-color: #fff;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        button { 
+            flex: 1;
+            padding: 12px 8px; 
+            border-radius: 6px; 
+            border: none; 
+            font-weight: bold; 
+            font-size: 14px;
+            cursor: pointer; 
+            transition: opacity 0.2s;
+            color: #ffffff;
+        }
+        button:hover { 
+            opacity: 0.85;
+        }
+        .btn-pickup { 
+            background: #28a745; 
+        }
+        .btn-dropoff { 
+            background: #dc3545; 
+        }
+        .note {
+            font-size: 13px;
+            color: #6c757d;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>📱 APP HÀNH KHÁCH</h2>
+        
+        <!-- Vị trí xe hiện tại -->
+        <div class="bus-status" id="currentBusPos">
+            🚌 Xe bus đang ở: <span id="currentStopName">Đang tải...</span>
+        </div>
+
+        <label for="stopSelect">Chọn trạm bạn muốn tương tác:</label>
+        <select id="stopSelect">
+            <option value="">-- Đang tải danh sách trạm... --</option>
+        </select>
+
+        <div class="btn-group">
+            <button class="btn-pickup" onclick="sendRequest('LEN')">🟢 Yêu Cầu LÊN XE</button>
+            <button class="btn-dropoff" onclick="sendRequest('XUONG')">🔴 Yêu Cầu XUỐNG XE</button>
+        </div>
+
+        <p class="note">💡 Tín hiệu sẽ được gửi trực tiếp đến màn hình của Tài xế.</p>
+    </div>
+
+    <script>
+        async function loadTripData() {
+            try {
+                const res = await fetch('/api/trip-info/1');
+                const data = await res.json();
+
+                if (!Array.isArray(data) || data.length === 0) return;
+
+                const uniqueStops = [];
+                const stopMap = new Map();
+                data.forEach(item => {
+                    if (!stopMap.has(item.idStop)) {
+                        stopMap.set(item.idStop, item);
+                        uniqueStops.push(item);
+                    }
+                });
+
+                const currentSeq = data[0].currentStopSequence;
+                const currentStop = uniqueStops.find(s => s.thuTu === currentSeq);
+                if (currentStop) {
+                    document.getElementById('currentStopName').innerText = `${currentStop.tenTram} (Trạm ${currentStop.thuTu}/${uniqueStops.length})`;
+                }
+
+                const select = document.getElementById('stopSelect');
+                if (select.options.length <= 1) {
+                    select.innerHTML = '<option value="">-- Chọn trạm --</option>';
+                    uniqueStops.forEach(stop => {
+                        const option = document.createElement('option');
+                        option.value = stop.idStop;
+                        option.textContent = `${stop.thuTu}. ${stop.tenTram}`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (err) {
+                console.error('❌ Lỗi kết nối API:', err);
+                document.getElementById('currentStopName').innerText = "Lỗi kết nối Server!";
+            }
+        }
+
+        async function sendRequest(loai) {
+            const idStop = document.getElementById('stopSelect').value;
+            const actionText = loai === 'LEN' ? 'LÊN XE' : 'XUỐNG XE';
+
+            if (!idStop) {
+                alert(`Vui lòng chọn trạm bạn muốn ${actionText}!`);
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        idTrip: 1, 
+                        idStop: parseInt(idStop), 
+                        loai: loai 
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`${data.message}\n✅ Bác tài đã nhận được tín hiệu báo ${actionText}!`);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Gửi thất bại'));
+                }
+            } catch (err) {
+                alert('Không thể kết nối đến Server để gửi yêu cầu!');
+            }
+        }
+
+        window.onload = () => {
+            loadTripData();
+            setInterval(loadTripData, 3000);
+        };
+    </script>
+</body>
+</html>

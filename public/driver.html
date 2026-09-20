@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Màn Hình Tài Xế - Smart Bus</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
+        
+        .container { max-width: 850px; margin: 0 auto; }
+        
+        .header { background: #1e293b; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #334155; }
+        .header h2 { margin: 0 0 10px 0; color: #38bdf8; }
+        .status-box { font-size: 18px; font-weight: bold; color: #facc15; }
+        
+        .stop-list { background: #1e293b; border-radius: 12px; padding: 15px; border: 1px solid #334155; }
+        
+        .stop-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            padding: 14px 18px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            background: #334155;
+            border-left: 6px solid #64748b;
+        }
+        
+        /* Trạng thái trạm */
+        .stop-item.current { border-left-color: #38bdf8; background: #1e3a8a; }
+        .stop-item.has-request-len { border-left-color: #22c55e; background: #14532d; }
+        .stop-item.has-request-xuong { border-left-color: #ef4444; background: #7f1d1d; }
+        .stop-item.has-request-both { border-left-color: #eab308; background: #713f12; }
+        
+        /* Tên trạm không bị ngắt dòng */
+        .stop-name {
+            font-size: 16px;
+            font-weight: bold;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        
+        /* Badge giữ thẳng hàng ngang */
+        .badges {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+        
+        .badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        
+        .badge-current { background: #38bdf8; color: #0f172a; }
+        .badge-len { background: #22c55e; color: #fff; animation: pulse 1.5s infinite; }
+        .badge-xuong { background: #ef4444; color: #fff; animation: pulse 1.5s infinite; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .btn-next { width: 100%; padding: 16px; background: #2563eb; color: #fff; border: none; font-size: 18px; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 15px; }
+        .btn-next:hover { background: #1d4ed8; }
+        .refresh-info { text-align: center; font-size: 13px; color: #94a3b8; margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>🚌 BẢNG ĐIỀU KHIỂN TÀI XẾ</h2>
+            <div class="status-box" id="currentStopTitle">Trạm hiện tại: Đang tải...</div>
+            <button class="btn-next" onclick="nextStop()">⏭️ CHUYỂN SANG TRẠM KẾ TIẾP</button>
+        </div>
+
+        <div class="stop-list" id="stopList">
+            <div style="text-align: center; color: #94a3b8;">Đang tải danh sách trạm...</div>
+        </div>
+
+        <div class="refresh-info">🔄 Tự động cập nhật tín hiệu từ hành khách mỗi 3 giây</div>
+    </div>
+
+    <script>
+        let currentSequence = 1;
+
+        async function fetchTripData() {
+            console.log("🔄 [Driver] Đang cập nhật dữ liệu chuyến xe...");
+            try {
+                const res = await fetch('/api/trip-info/1');
+                const rawData = await res.json();
+                console.log("✅ [Driver] Dữ liệu chuyến xe:", rawData);
+
+                if (!Array.isArray(rawData) || rawData.length === 0) {
+                    document.getElementById('stopList').innerHTML = '<div style="text-align:center;">Không có dữ liệu chuyến xe</div>';
+                    return;
+                }
+
+                currentSequence = rawData[0].currentStopSequence || 1;
+
+                const stopsMap = new Map();
+                rawData.forEach(item => {
+                    if (!stopsMap.has(item.idStop)) {
+                        stopsMap.set(item.idStop, {
+                            idStop: item.idStop,
+                            tenTram: item.tenTram,
+                            thuTu: item.thuTu,
+                            hasLen: false,
+                            hasXuong: false
+                        });
+                    }
+
+                    const stopObj = stopsMap.get(item.idStop);
+                    if (item.loai === 'LEN' || item.coKhachLen) stopObj.hasLen = true;
+                    if (item.loai === 'XUONG' || item.coKhachXuong) stopObj.hasXuong = true;
+                });
+
+                const stops = Array.from(stopsMap.values()).sort((a, b) => a.thuTu - b.thuTu);
+
+                const currentStop = stops.find(s => s.thuTu === currentSequence);
+                if (currentStop) {
+                    document.getElementById('currentStopTitle').innerText = `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
+                }
+
+                const container = document.getElementById('stopList');
+                container.innerHTML = '';
+
+                stops.forEach(stop => {
+                    const isCurrent = stop.thuTu === currentSequence;
+
+                    let itemClass = 'stop-item';
+                    if (isCurrent) {
+                        itemClass += ' current';
+                    } else if (stop.hasLen && stop.hasXuong) {
+                        itemClass += ' has-request-both';
+                    } else if (stop.hasLen) {
+                        itemClass += ' has-request-len';
+                    } else if (stop.hasXuong) {
+                        itemClass += ' has-request-xuong';
+                    }
+
+                    let badgesHtml = '';
+                    if (isCurrent) badgesHtml += '<span class="badge badge-current">🚌 XE Ở ĐÂY</span>';
+                    if (stop.hasLen) badgesHtml += '<span class="badge badge-len">🟢 CÓ KHÁCH LÊN</span>';
+                    if (stop.hasXuong) badgesHtml += '<span class="badge badge-xuong">🔴 CÓ KHÁCH XUỐNG</span>';
+
+                    const itemHtml = `
+                        <div class="${itemClass}">
+                            <div class="stop-name">${stop.thuTu}. ${stop.tenTram}</div>
+                            <div class="badges">${badgesHtml}</div>
+                        </div>
+                    `;
+                    container.innerHTML += itemHtml;
+                });
+
+            } catch (err) {
+                console.error("❌ [Driver] Lỗi tải dữ liệu:", err);
+            }
+        }
+
+        async function nextStop() {
+            try {
+                const res = await fetch('/api/next-stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idTrip: 1 })
+                });
+                const result = await res.json();
+                console.log("Chuyển trạm:", result);
+                fetchTripData();
+            } catch (err) {
+                alert('Chuyển trạm thất bại hoặc API /api/next-stop chưa khởi tạo');
+            }
+        }
+
+        window.onload = () => {
+            fetchTripData();
+            setInterval(fetchTripData, 3000);
+        };
+    </script>
+</body>
+</html>
