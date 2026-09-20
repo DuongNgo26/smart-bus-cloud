@@ -123,7 +123,11 @@
                 const currentSeq = data[0].currentStopSequence;
                 const currentStop = uniqueStops.find(s => s.thuTu === currentSeq);
                 if (currentStop) {
-                    const huongText = data[0].huong === -1 ? '⬅️ chiều về' : '➡️ chiều đi';
+                    // Tại trạm đầu -> chiều đi, tại trạm cuối -> chiều về
+                    let huongHT = data[0].huong;
+                    if (currentSeq <= uniqueStops[0].thuTu) huongHT = 1;
+                    else if (currentSeq >= uniqueStops[uniqueStops.length - 1].thuTu) huongHT = -1;
+                    const huongText = huongHT === -1 ? '⬅️ chiều về' : '➡️ chiều đi';
                     document.getElementById('currentStopName').innerText =
                         `${currentStop.tenTram} (Trạm ${currentStop.thuTu}/${uniqueStops.length}) - ${huongText}`;
                 }

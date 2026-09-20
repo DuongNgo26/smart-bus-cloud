@@ -124,7 +124,12 @@
                     `📍 Vị trí xe: ${currentStop.tenTram} (Trạm ${currentSequence}/${stops.length})`;
             }
 
-            document.getElementById('directionInfo').innerText = huong === 1
+            // Tại trạm đầu -> hiện chiều đi, tại trạm cuối -> hiện chiều về (chiều xe sắp chạy)
+            let huongHienThi = huong;
+            if (currentSequence <= first.thuTu) huongHienThi = 1;
+            else if (currentSequence >= last.thuTu) huongHienThi = -1;
+
+            document.getElementById('directionInfo').innerText = huongHienThi === 1
                 ? `➡️ Chiều đi: ${first.tenTram} → ${last.tenTram}`
                 : `⬅️ Chiều về: ${last.tenTram} → ${first.tenTram}`;
 
@@ -148,7 +153,7 @@
 
                 let badgesHtml = '';
                 if (isCurrent) badgesHtml += '<span class="badge badge-current">🚌 XE Ở ĐÂY</span>';
-                if (isNext) badgesHtml += '<span class="badge badge-next">⏭️ TRẠM KẾ</span>';
+                if (isNext) badgesHtml += '<span class="badge badge-next">⏭️ TRẠM TIẾP THEO</span>';
                 if (stop.hasLen) badgesHtml += '<span class="badge badge-len">🟢 CÓ KHÁCH LÊN</span>';
                 if (stop.hasXuong) badgesHtml += '<span class="badge badge-xuong">🔴 CÓ KHÁCH XUỐNG</span>';
 
