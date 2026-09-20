@@ -57,13 +57,13 @@ app.get('/api/trip-info/:idTrip', async (req, res) => {
     }
 });
 
-// API: Gửi yêu cầu Lên/Xuống xe từ Hành khách & Mô phỏng
+// API: Gửi yêu cầu Lên/Xuống xe từ Hành khách & Mô phỏng / ESP32
 app.post('/api/request', async (req, res) => {
     try {
-        const { idTrip, idStop, loai } = req.body;
+        let { idTrip, idStop, loai } = req.body;
         
-        // 1. Kiểm tra thiếu dữ liệu
-        if (!idTrip || !idStop || !loai) {
+        // 1. Kiểm tra thiếu dữ liệu cơ bản (idTrip và loai là bắt buộc)
+        if (!idTrip || !loai) {
             return res.status(400).json({ error: 'Thiếu dữ liệu yêu cầu' });
         }
 
@@ -72,12 +72,45 @@ app.post('/api/request', async (req, res) => {
             return res.status(400).json({ error: 'Loại yêu cầu không hợp lệ (chỉ chấp nhận LEN hoặc XUONG)' });
         }
 
+        // 3. XỬ LÝ THÔNG MINH CHO NÚT TRÊN XE (Khi idStop = 0 hoặc không truyền)
+        if (!idStop || idStop === 0) {
+            // Lấy route và thứ tự trạm hiện tại của chuyến xe
+            const tripInfo = await pool.query(`
+                SELECT t.idRoute, t.currentStopSequence 
+                FROM Trip t 
+                WHERE t.idTrip = $1
+            `, [idTrip]);
+
+            if (tripInfo.rows.length === 0) {
+                return res.status(404).json({ error: 'Không tìm thấy chuyến xe' });
+            }
+
+            const { idroute, currentstopsequence } = tripInfo.rows[0];
+
+            // Tìm trạm kế tiếp (trạm có thứ tự lớn hơn trạm hiện tại gần nhất)
+            // Nếu muốn khách bấm xuống ở chính trạm hiện tại xe đang đứng, bạn có thể đổi thành `s.thuTu >= currentstopsequence`
+            const nextStopQuery = await pool.query(`
+                SELECT idStop 
+                FROM Stop 
+                WHERE idRoute = $1 AND thuTu > $2 
+                ORDER BY thuTu ASC 
+                LIMIT 1
+            `, [idroute, currentstopsequence]);
+
+            if (nextStopQuery.rows.length > 0) {
+                idStop = nextStopQuery.rows[0].idstop;
+            } else {
+                return res.status(400).json({ error: 'Xe đã ở trạm cuối, không thể tạo yêu cầu xuống!' });
+            }
+        }
+
+        // 4. Lưu request vào Database
         await pool.query(`
             INSERT INTO Request (idTrip, idStop, loai, trangThai)
             VALUES ($1, $2, $3, 'Đã xác nhận')
         `, [idTrip, idStop, loai]);
 
-        res.json({ message: 'Gửi yêu cầu thành công!' });
+        res.json({ message: 'Gửi yêu cầu thành công!', idStopUsed: idStop });
     } catch (err) {
         console.error("❌ Lỗi ghi nhận request:", err);
         res.status(500).json({ error: 'Lỗi ghi nhận yêu cầu' });
